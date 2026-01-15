@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Review & Watch</title>
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
+        rel="stylesheet" />
+    <style>
+        :root {
+            /* MD3 Dark Theme Tokens */
+            --md-surface: #141218;
+            --md-surface-container: #1D1B20;
+            --md-primary: #D0BCFF;
+            --md-on-primary: #381E72;
+            --md-primary-container: #4F378B;
+            --md-on-surface: #E6E1E5;
+            --md-on-surface-variant: #CAC4D0;
+            --md-outline: #938F99;
+            --md-outline-variant: #49454F;
+            --md-error: #F2B8B5;
+
+            --radius-lg: 16px;
+            --radius-md: 12px;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--md-surface);
+            color: var(--md-on-surface);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* App Bar */
+        .app-bar {
+            height: 64px;
+            background: var(--md-surface-container);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            gap: 16px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+        }
+
+        .app-bar-title {
+            font-size: 1.25rem;
+            font-weight: 500;
+        }
+
+        .tag-chip {
+            background: var(--md-primary-container);
+            color: var(--md-on-surface);
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        /* Demo Layout */
+        .stage {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .video-panel {
+            flex: 1;
+            background: black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        video {
+            max-width: 100%;
+            max-height: 100%;
+            outline: none;
+        }
+
+        .side-panel {
+            width: 360px;
+            background: var(--md-surface-container);
+            border-left: 1px solid var(--md-outline-variant);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .comments-header {
+            padding: 16px 24px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            border-bottom: 1px solid var(--md-outline-variant);
+            color: var(--md-primary);
+        }
+
+        .comments-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        .comment-item {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--md-outline-variant);
+            display: flex;
+            gap: 12px;
+        }
+
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--md-primary-container);
+            color: var(--md-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .comment-body {
+            flex: 1;
+        }
+
+        .comment-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+            color: var(--md-on-surface-variant);
+        }
+
+        .time-chip {
+            color: var(--md-primary);
+            background: rgba(208, 188, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .time-chip:hover {
+            background: rgba(208, 188, 255, 0.2);
+        }
+
+        .input-area {
+            padding: 16px;
+            border-top: 1px solid var(--md-outline-variant);
+            background: var(--md-surface);
+        }
+
+        .md-input-box {
+            background: var(--md-surface-container);
+            border: 1px solid var(--md-outline);
+            border-radius: var(--radius-lg);
+            /* Pill shape container */
+            display: flex;
+            padding: 4px 4px 4px 16px;
+            align-items: center;
+        }
+
+        .md-input-box:focus-within {
+            border-color: var(--md-primary);
+            outline: 1px solid var(--md-primary);
+        }
+
+        input.comment-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 8px 0;
+            outline: none;
+            font-size: 1rem;
+        }
+
+        .send-btn {
+            background: var(--md-primary);
+            color: var(--md-on-primary);
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+
+        .send-btn:hover {
+            filter: brightness(0.9);
+        }
+
+        /* Dailies Grid */
+        .grid-container {
+            padding: 24px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .media-card {
+            background: var(--md-surface-container);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            border: 1px solid var(--md-outline-variant);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: transform 0.2s;
+        }
+
+        .media-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--md-outline);
+        }
+
+        .thumb-wrapper {
+            aspect-ratio: 16/9;
+            background: black;
+            position: relative;
+        }
+
+        .thumb-wrapper video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .card-content {
+            padding: 12px;
+        }
+
+        .card-title {
+            font-weight: 500;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-sub {
+            font-size: 0.85rem;
+            color: var(--md-on-surface-variant);
+        }
+
+        .fav-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            color: var(--md-on-surface-variant);
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+        }
+
+        .fav-btn.active {
+            color: #FFD700;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="app-bar">
+        <span class="material-symbols-outlined">smart_display</span>
+        <div class="app-bar-title">审阅系统</div>
+        <div class="tag-chip">{{ .ProjectName }}</div>
+    </div>
+
+    {{ if eq .Mode "demo" }}
+    <div class="stage">
+        <div class="video-panel">
+            <video id="mainVideo" controls>
+                <source src="{{ .VideoPath }}" type="video/mp4">
+            </video>
+        </div>
+
+        {{ if .IsReviewer }}
+        <div class="side-panel">
+            <div class="comments-header">评论</div>
+            <div class="comments-list" id="commentsList">
+                {{ range .Comments }}
+                <div class="comment-item">
+                    <div class="avatar">{{ .Reporter | printf "%.1s" }}</div>
+                    <div class="comment-body">
+                        <div class="comment-meta">
+                            <span>{{ .Reporter }}</span>
+                            <span class="time-chip" onclick="seek({{ .Timecode }})">{{ .Timecode | printf "%.2f"
+                                }}s</span>
+                        </div>
+                        <div>{{ .Content }}</div>
+                    </div>
+                </div>
+                {{ end }}
+            </div>
+            <div class="input-area">
+                <div class="md-input-box">
+                    <input type="text" class="comment-input" id="commentText" placeholder="添加评论...">
+                    <button class="send-btn" onclick="submitComment()">
+                        <span class="material-symbols-outlined">send</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {{ else }}
+        <!-- View Mode: No Side Panel -->
+        {{ end }}
+
+    </div>
+    <script>
+        const vid = document.getElementById('mainVideo');
+        const isReviewer = {{ .IsReviewer }};
+        let reviewerName = localStorage.getItem('mam_reviewer_name') || "审阅人";
+
+        if (isReviewer && localStorage.getItem('mam_reviewer_name') === null) {
+            const name = prompt("请输入您的名字以开始审阅:", "");
+            if (name) {
+                reviewerName = name;
+                localStorage.setItem('mam_reviewer_name', name);
+            }
+        }
+
+        function seek(t) { vid.currentTime = t; vid.play(); }
+
+        function submitComment() {
+            const inp = document.getElementById('commentText');
+            const text = inp.value;
+            if (!text) return;
+
+            const currentTime = vid.currentTime;
+            fetch('/api/comment', {
+                method: 'POST',
+                body: JSON.stringify({
+                    video_id: 1,
+                    timecode: currentTime,
+                    content: text,
+                    severity: "normal",
+                    reporter: reviewerName,
+                    screenshot_path: ""
+                }),
+                headers: { 'Content-Type': 'application/json' }
+            })
+                .then(r => r.json())
+                .then(data => {
+                    inp.value = "";
+                    const list = document.getElementById('commentsList');
+                    const div = document.createElement('div');
+                    div.className = 'comment-item';
+                    div.innerHTML = `
+                <div class="avatar">${data.reporter[0]}</div>
+                <div class="comment-body">
+                    <div class="comment-meta">
+                        <span>${data.reporter}</span>
+                        <span class="time-chip" onclick="seek(${data.timecode})">${data.timecode.toFixed(2)}s</span>
+                    </div>
+                    <div>${data.content}</div>
+                </div>
+            `;
+                    list.appendChild(div);
+                    list.scrollTop = list.scrollHeight;
+                });
+        }
+    </script>
+
+    {{ else if eq .Mode "dailies" }}
+    <div class="stage" style="flex-direction: column;">
+        <div class="grid-container">
+            {{ range .Dailies }}
+            <div class="media-card">
+                <div class="thumb-wrapper">
+                    <video src="/stream-daily/{{ .ID }}?token={{ $.Token }}" controls preload="metadata"></video>
+                    <button class="fav-btn {{ if .IsGood }}active{{ end }}" onclick="toggleStar(this, {{ .ID }})">
+                        <span class="material-symbols-outlined">star</span>
+                    </button>
+                </div>
+                <div class="card-content">
+                    <div class="card-title">{{ .OriginalFilename }}</div>
+                    <div class="card-sub">{{ .FolderPath }}</div>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+    <script>
+        function toggleStar(el, id) {
+            fetch('/api/action/star?id=' + id + '&token={{ .Token }}', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.is_good) el.classList.add('active');
+                    else el.classList.remove('active');
+                });
+        }
+    </script>
+    {{ end }}
+
+</body>
+
+</html>
