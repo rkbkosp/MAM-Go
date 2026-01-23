@@ -33,7 +33,7 @@
 cd server
 go mod tidy
 go build -o mam-server .
-./mam-server
+./mam-server -env my_config.env
 ```
 
 服务端默认监听 `:8080` 端口。数据存储在本地 `mam.db` 和 `storage/` 目录。

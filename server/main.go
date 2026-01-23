@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"html/template"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,28 +26,122 @@ import (
 //go:embed templates/*
 var embedFS embed.FS
 
-// --- 1.2 Configuration & Robustness ---
+var cfg *Config
 
-const (
-	ServerPort    = ":8080"
-	AdminPassword = "my_secret_pwd"
-	UploadRoot    = "storage" // Relative path for portability
-	DBPath        = "mam.db"
+type Config struct {
+	ServerPort      string
+	AdminPassword   string
+	UploadRoot      string
+	DBPath          string
+	EnableWebDAV    bool
+	WebdavURL       string
+	WebdavUser      string
+	WebdavPass      string
+	EnableAutoClean bool
+	KeepVersions    int
+	SafeCleanMode   bool
+	GotifyURL       string
+	GotifyToken     string
+}
 
-	// --- Operations Strategy ---
-	EnableWebDAV = true
-	WebdavURL    = "https://dav.example.com/"
-	WebdavUser   = "user"
-	WebdavPass   = "pass"
+func loadConfig(path string) {
+	// Defaults
+	defaultConfig := map[string]string{
+		"SERVER_PORT":       ":8080",
+		"ADMIN_PASSWORD":    "my_secret_pwd",
+		"UPLOAD_ROOT":       "storage",
+		"DB_PATH":           "mam.db",
+		"ENABLE_WEBDAV":     "true",
+		"WEBDAV_URL":        "http://127.0.0.1:5244/dav/",
+		"WEBDAV_USER":       "admin",
+		"WEBDAV_PASS":       "admin",
+		"ENABLE_AUTO_CLEAN": "true",
+		"KEEP_VERSIONS":     "5",
+		"SAFE_CLEAN_MODE":   "true",
+		"GOTIFY_URL":        "http://127.0.0.1:8081/message",
+		"GOTIFY_TOKEN":      "token_here",
+	}
 
-	EnableAutoClean = true
-	KeepVersions    = 5
-	SafeCleanMode   = true // True=Delete only if backup_status=1
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		fmt.Printf("Configuration file not found at %s. Creating default template.\n", path)
+		f, err := os.Create(path)
+		if err != nil {
+			log.Fatalf("Failed to create config file: %v", err)
+		}
+		defer f.Close()
 
-	// --- Notifications ---
-	GotifyURL   = "http://127.0.0.1:8081/message"
-	GotifyToken = "token_here"
-)
+		content := `# Server Configuration
+SERVER_PORT=:8080
+ADMIN_PASSWORD=my_secret_pwd
+UPLOAD_ROOT=storage
+DB_PATH=mam.db
+
+# Operations
+ENABLE_WEBDAV=true
+WEBDAV_URL=http://127.0.0.1:5244/dav/
+WEBDAV_USER=admin
+WEBDAV_PASS=admin
+ENABLE_AUTO_CLEAN=true
+KEEP_VERSIONS=5
+SAFE_CLEAN_MODE=true # True=Delete only if backup_status=1
+
+# Notifications
+GOTIFY_URL=http://127.0.0.1:8081/message
+GOTIFY_TOKEN=token_here
+`
+		f.WriteString(content)
+		fmt.Println("Please edit the .env file and restart the server.")
+		os.Exit(0)
+	}
+
+	// Read Config
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("Failed to open config file: %v", err)
+	}
+	defer file.Close()
+
+	env := make(map[string]string)
+	// Copy defaults first
+	for k, v := range defaultConfig {
+		env[k] = v
+	}
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			// Handle inline comments
+			if idx := strings.Index(val, "#"); idx != -1 {
+				val = strings.TrimSpace(val[:idx])
+			}
+			env[key] = val
+		}
+	}
+
+	cfg = &Config{
+		ServerPort:    env["SERVER_PORT"],
+		AdminPassword: env["ADMIN_PASSWORD"],
+		UploadRoot:    env["UPLOAD_ROOT"],
+		DBPath:        env["DB_PATH"],
+		WebdavURL:     env["WEBDAV_URL"],
+		WebdavUser:    env["WEBDAV_USER"],
+		WebdavPass:    env["WEBDAV_PASS"],
+		GotifyURL:     env["GOTIFY_URL"],
+		GotifyToken:   env["GOTIFY_TOKEN"],
+	}
+
+	cfg.EnableWebDAV, _ = strconv.ParseBool(env["ENABLE_WEBDAV"])
+	cfg.EnableAutoClean, _ = strconv.ParseBool(env["ENABLE_AUTO_CLEAN"])
+	cfg.SafeCleanMode, _ = strconv.ParseBool(env["SAFE_CLEAN_MODE"])
+	cfg.KeepVersions, _ = strconv.Atoi(env["KEEP_VERSIONS"])
+}
 
 // --- Database Models ---
 
@@ -102,7 +199,7 @@ var db *sql.DB
 // --- Init Database ---
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite", DBPath)
+	db, err = sql.Open("sqlite", cfg.DBPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -185,7 +282,7 @@ func uploadDemoHandler(c *gin.Context) {
 		}
 		projectID = getProjectID(projectName)
 	}
-	saveDir := filepath.Join(UploadRoot, projectName, "Demos")
+	saveDir := filepath.Join(cfg.UploadRoot, projectName, "Demos")
 	os.MkdirAll(saveDir, 0755)
 
 	destPath := filepath.Join(saveDir, filename)
@@ -238,7 +335,7 @@ func checkDailyHandler(c *gin.Context) {
 	// 2. Check for partial file on disk
 	// Path construction: UploadRoot / projectName / "Dailies" / folderPath / filename + ".part"
 	// Ensure consistency with uploadDailyHandler path logic.
-	saveDir := filepath.Join(UploadRoot, projectName, "Dailies", folderPath)
+	saveDir := filepath.Join(cfg.UploadRoot, projectName, "Dailies", folderPath)
 	partPath := filepath.Join(saveDir, originalFilename+".part")
 
 	info, err := os.Stat(partPath)
@@ -281,7 +378,7 @@ func uploadDailyHandler(c *gin.Context) {
 	}
 
 	projectID := getProjectID(projectName)
-	saveDir := filepath.Join(UploadRoot, projectName, "Dailies", folderPath)
+	saveDir := filepath.Join(cfg.UploadRoot, projectName, "Dailies", folderPath)
 	os.MkdirAll(saveDir, 0755)
 
 	partPath := filepath.Join(saveDir, filename+".part")
@@ -500,7 +597,7 @@ func postCommentHandler(c *gin.Context) {
 		if err == nil {
 			// Save to disk
 			fileName := fmt.Sprintf("%d_%d.png", cm.VideoID, time.Now().UnixNano())
-			saveDir := filepath.Join(UploadRoot, "Comments")
+			saveDir := filepath.Join(cfg.UploadRoot, "Comments")
 			os.MkdirAll(saveDir, 0755)
 			fullPath := filepath.Join(saveDir, fileName)
 
@@ -556,7 +653,7 @@ func runDailyTasks() {
 	log.Println("Running Daily Tasks...")
 
 	// 1. Backup Videos
-	if EnableWebDAV {
+	if cfg.EnableWebDAV {
 		rows, _ := db.Query("SELECT id, file_path FROM videos WHERE backup_status = 0")
 		for rows.Next() {
 			var id int
@@ -569,7 +666,7 @@ func runDailyTasks() {
 	}
 
 	// 2. Cleanup Old Versions
-	if EnableAutoClean {
+	if cfg.EnableAutoClean {
 		// Group by project, order by created_at desc
 		// This logic needs to be robust.
 		// Simpler: Iterate all projects, get videos, keep top K
@@ -587,10 +684,10 @@ func runDailyTasks() {
 				videos = append(videos, v)
 			}
 
-			if len(videos) > KeepVersions {
-				toDelete := videos[KeepVersions:]
+			if len(videos) > cfg.KeepVersions {
+				toDelete := videos[cfg.KeepVersions:]
 				for _, v := range toDelete {
-					if SafeCleanMode && v.BackupStatus == 0 {
+					if cfg.SafeCleanMode && v.BackupStatus == 0 {
 						log.Printf("Skipping cleanup for %s: not backed up", v.FilePath)
 						continue
 					}
@@ -612,6 +709,10 @@ func uploadToWebDAV(localPath string) bool {
 }
 
 func main() {
+	envFile := flag.String("env", ".env", "Path to .env file")
+	flag.Parse()
+
+	loadConfig(*envFile)
 	initDB()
 	startScheduler()
 
@@ -624,7 +725,7 @@ func main() {
 	// Middleware for auth if needed
 	// Basic Auth for Admin
 	admin := r.Group("/admin", gin.BasicAuth(gin.Accounts{
-		"admin": AdminPassword,
+		"admin": cfg.AdminPassword,
 	}))
 	admin.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "admin.html", nil)
@@ -699,6 +800,6 @@ func main() {
 	r.GET("/stream/:id", streamHandler)
 	r.GET("/stream-daily/:id", streamHandler) // same logic basically
 
-	log.Printf("Server starting on %s", ServerPort)
-	r.Run(ServerPort)
+	log.Printf("Server starting on %s", cfg.ServerPort)
+	r.Run(cfg.ServerPort)
 }

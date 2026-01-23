@@ -3,6 +3,10 @@ mam-server-*
 mam.db
 server/storage
 media_source/
+server/MAM-Go-server_linux-arm64_v1
+server/MAM-Go-server_linux-x64_v1
+server/MAM-Go
+
 
 # 编译产物
 *.exe
