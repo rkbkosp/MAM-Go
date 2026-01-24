@@ -311,8 +311,8 @@
                     <div class="comment-body">
                         <div class="comment-meta">
                             <span>{{ .Reporter }}</span>
-                            <span class="time-chip" onclick="seek({{ .Timecode }})">{{ .Timecode | printf "%.2f"
-                                }}s</span>
+                            <span class="time-chip" onclick="seek(Number('{{ .Timecode }}'))">{{ .Timecode | printf
+                                "%.2f" }}s</span>
                         </div>
                         <div>{{ .Content }}</div>
                     </div>
@@ -335,7 +335,7 @@
     </div>
     <script>
         const vid = document.getElementById('mainVideo');
-        const isReviewer = {{ .IsReviewer }};
+        const isReviewer = "{{ .IsReviewer }}" === "true";
         let reviewerName = localStorage.getItem('mam_reviewer_name') || "审阅人";
 
         if (isReviewer && localStorage.getItem('mam_reviewer_name') === null) {
@@ -395,7 +395,7 @@
             <div class="media-card">
                 <div class="thumb-wrapper">
                     <video src="/stream-daily/{{ .ID }}?token={{ $.Token }}" controls preload="metadata"></video>
-                    <button class="fav-btn {{ if .IsGood }}active{{ end }}" onclick="toggleStar(this, {{ .ID }})">
+                    <button class="fav-btn {{ if .IsGood }}active{{ end }}" onclick="toggleStar(this, '{{ .ID }}')">
                         <span class="material-symbols-outlined">star</span>
                     </button>
                 </div>
