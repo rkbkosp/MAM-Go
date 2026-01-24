@@ -557,6 +557,10 @@ func watchHandler(c *gin.Context) {
 			"IsReviewer":  t.Role == "reviewer",
 		})
 	} else if t.Type == "dailies" {
+		// Get Project Name
+		var projectName string
+		db.QueryRow("SELECT name FROM projects WHERE id = ?", t.TargetID).Scan(&projectName)
+
 		// Render Grid
 		rows, _ := db.Query("SELECT id, original_filename, folder_path, is_good FROM dailies WHERE project_id = ? ORDER BY created_at DESC", t.TargetID)
 		var ds []Daily
@@ -566,10 +570,11 @@ func watchHandler(c *gin.Context) {
 			ds = append(ds, d)
 		}
 		c.HTML(http.StatusOK, "watch.html", gin.H{
-			"Mode":      "dailies",
-			"Dailies":   ds,
-			"Token":     tokenCode,
-			"ProjectID": t.TargetID,
+			"Mode":        "dailies",
+			"Dailies":     ds,
+			"Token":       tokenCode,
+			"ProjectID":   t.TargetID,
+			"ProjectName": projectName,
 		})
 	}
 }
