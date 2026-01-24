@@ -301,8 +301,8 @@ func scanFiles(root string) []string {
 }
 
 func getMetadata(path string) (string, error) {
-	// ffprobe -v quiet -print_format json -show_format -show_streams input.mov
-	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", path)
+	// ffprobe -v quiet -print_format json -show_format -show_streams -select_streams v:0 input.mov
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", "-select_streams", "v:0", path)
 	out, err := cmd.Output()
 	if err != nil {
 		return "{}", err

@@ -20,6 +20,10 @@
 
 ## 快速开始
 
+### 0. 编译
+
+具体内容请参考 [Usage.md](Usage.md)。
+
 ### 1. 服务端 (Server)
 
 位于 `server` 目录。
@@ -30,9 +34,6 @@
 
 **运行**:
 ```bash
-cd server
-go mod tidy
-go build -o mam-server .
 ./mam-server -env my_config.env
 ```
 
