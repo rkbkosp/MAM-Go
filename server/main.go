@@ -566,9 +566,10 @@ func watchHandler(c *gin.Context) {
 			ds = append(ds, d)
 		}
 		c.HTML(http.StatusOK, "watch.html", gin.H{
-			"Mode":    "dailies",
-			"Dailies": ds,
-			"Token":   tokenCode,
+			"Mode":      "dailies",
+			"Dailies":   ds,
+			"Token":     tokenCode,
+			"ProjectID": t.TargetID,
 		})
 	}
 }
@@ -834,8 +835,146 @@ func main() {
 	// Public / Token Access
 	r.GET("/watch", watchHandler)
 	r.GET("/stream/:id", streamHandler)
-	r.GET("/stream-daily/:id", streamHandler) // same logic basically
+	r.GET("/stream-daily/:id", streamHandler)    // same logic basically
+	r.GET("/api/export/otio", exportOtioHandler) // New Route
 
-	log.Printf("Server starting on %s", cfg.ServerPort)
+	log.Printf("Server starting on port %s", cfg.ServerPort)
+	log.Printf("Access at http://localhost%s/admin", cfg.ServerPort)
+
 	r.Run(cfg.ServerPort)
+}
+
+// --- OTIO Export ---
+
+type OtioRationalTime struct {
+	Schema string  `json:"OTIO_SCHEMA"`
+	Rate   float64 `json:"rate"`
+	Value  float64 `json:"value"`
+}
+
+type OtioTimeRange struct {
+	Schema    string           `json:"OTIO_SCHEMA"`
+	StartTime OtioRationalTime `json:"start_time"`
+	Duration  OtioRationalTime `json:"duration"`
+}
+
+type OtioReference struct {
+	Schema    string `json:"OTIO_SCHEMA"`
+	TargetURL string `json:"target_url"`
+}
+
+type OtioClip struct {
+	Schema         string        `json:"OTIO_SCHEMA"`
+	Name           string        `json:"name"`
+	SourceRange    OtioTimeRange `json:"source_range"`
+	MediaReference OtioReference `json:"media_reference"`
+}
+
+type OtioTrack struct {
+	Schema   string     `json:"OTIO_SCHEMA"`
+	Kind     string     `json:"kind"`
+	Children []OtioClip `json:"children"`
+}
+
+type OtioStack struct {
+	Schema   string      `json:"OTIO_SCHEMA"`
+	Children []OtioTrack `json:"children"`
+}
+
+type OtioTimeline struct {
+	Schema string    `json:"OTIO_SCHEMA"`
+	Name   string    `json:"name"`
+	Tracks OtioStack `json:"tracks"`
+}
+
+func parseFrameRate(frStr string) float64 {
+	if frStr == "" {
+		return 25.0
+	}
+	// "25/1", "24000/1001"
+	parts := strings.Split(frStr, "/")
+	if len(parts) == 2 {
+		num, err1 := strconv.ParseFloat(parts[0], 64)
+		den, err2 := strconv.ParseFloat(parts[1], 64)
+		if err1 == nil && err2 == nil && den != 0 {
+			return num / den
+		}
+	}
+	// "25", "23.976"
+	if f, err := strconv.ParseFloat(frStr, 64); err == nil {
+		return f
+	}
+	return 25.0
+}
+
+func exportOtioHandler(c *gin.Context) {
+	projectID := c.Query("project_id")
+	if projectID == "" {
+		c.JSON(400, gin.H{"error": "project_id required"})
+		return
+	}
+
+	// 1. Query Data
+	rows, err := db.Query("SELECT original_filename, frame_rate, duration FROM dailies WHERE project_id = ? AND is_good = 1 ORDER BY created_at ASC", projectID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "DB Query failed"})
+		return
+	}
+	defer rows.Close()
+
+	var clips []OtioClip
+	for rows.Next() {
+		var filename string
+		var frStr string
+		var durationSec float64
+		if err := rows.Scan(&filename, &frStr, &durationSec); err != nil {
+			continue
+		}
+
+		rate := parseFrameRate(frStr)
+		frames := durationSec * rate
+
+		clip := OtioClip{
+			Schema: "Clip.1",
+			Name:   filename,
+			SourceRange: OtioTimeRange{
+				Schema: "TimeRange.1",
+				StartTime: OtioRationalTime{
+					Schema: "RationalTime.1",
+					Rate:   rate,
+					Value:  0.0,
+				},
+				Duration: OtioRationalTime{
+					Schema: "RationalTime.1",
+					Rate:   rate,
+					Value:  frames,
+				},
+			},
+			MediaReference: OtioReference{
+				Schema:    "ExternalReference.1",
+				TargetURL: filename, // Simplified: use filename or "file:///.../" + filename
+			},
+		}
+		clips = append(clips, clip)
+	}
+
+	// 2. Build Timeline
+	timeline := OtioTimeline{
+		Schema: "Timeline.1",
+		Name:   fmt.Sprintf("Project %s Sequence", projectID),
+		Tracks: OtioStack{
+			Schema: "Stack.1",
+			Children: []OtioTrack{
+				{
+					Schema:   "Track.1",
+					Kind:     "Video",
+					Children: clips,
+				},
+			},
+		},
+	}
+
+	// 3. Response
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"project_%s_sequence.otio\"", projectID))
+	c.JSON(200, timeline)
 }

@@ -283,6 +283,14 @@
         <span class="material-symbols-outlined">smart_display</span>
         <div class="app-bar-title">审阅系统</div>
         <div class="tag-chip">{{ .ProjectName }}</div>
+        {{ if eq .Mode "dailies" }}
+        <button
+            style="margin-left:auto; background: #6750A4; border:none; color:white; padding: 0 16px; height: 32px; border-radius: 16px; cursor: pointer; display: flex; align-items: center; gap: 8px;"
+            onclick="window.location.href='/api/export/otio?project_id={{.ProjectID}}'">
+            <span class="material-symbols-outlined" style="font-size: 18px;">download</span>
+            Export OTIO
+        </button>
+        {{ end }}
     </div>
 
     {{ if eq .Mode "demo" }}
