@@ -171,6 +171,10 @@ type Daily struct {
 	Scene            string    `json:"scene"`
 	Take             string    `json:"take"`
 	IsGood           bool      `json:"is_good"`
+	Width            int       `json:"width"`      // New
+	Height           int       `json:"height"`     // New
+	FrameRate        string    `json:"frame_rate"` // New
+	Duration         float64   `json:"duration"`   // New
 	CreatedAt        time.Time `json:"created_at"`
 }
 
@@ -214,6 +218,11 @@ func initDB() {
 	_, err = db.Exec(schema)
 	// Migration for Note if needed (simple check)
 	_, _ = db.Exec("ALTER TABLE videos ADD COLUMN note TEXT")
+	// Migration for Metadata
+	_, _ = db.Exec("ALTER TABLE dailies ADD COLUMN width INTEGER DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE dailies ADD COLUMN height INTEGER DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE dailies ADD COLUMN frame_rate TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE dailies ADD COLUMN duration REAL DEFAULT 0")
 	if err != nil {
 		log.Fatalf("Schema init failed: %v", err)
 	}
@@ -434,6 +443,11 @@ func uploadDailyHandler(c *gin.Context) {
 			return
 		}
 
+		// Metadata Variables
+		var width, height int
+		var frameRate string
+		var duration float64
+
 		// Read Metadata from Header (Base64)
 		metadataB64 := c.GetHeader("X-File-Metadata")
 		if metadataB64 != "" {
@@ -463,7 +477,29 @@ func uploadDailyHandler(c *gin.Context) {
 							if v, ok := tags["com.apple.quicktime.make"]; ok {
 								camera = fmt.Sprint(v)
 							}
-							// scene/take usually not in ffprobe standard output unless custom user data.
+						}
+					}
+					// Extract Video Stream Metadata
+					if streams, ok := m["streams"].([]interface{}); ok {
+						for _, s := range streams {
+							stream := s.(map[string]interface{})
+							if stream["codec_type"] == "video" {
+								if w, ok := stream["width"].(float64); ok {
+									width = int(w)
+								}
+								if h, ok := stream["height"].(float64); ok {
+									height = int(h)
+								}
+								if fr, ok := stream["r_frame_rate"].(string); ok {
+									frameRate = fr
+								}
+								if d, ok := stream["duration"].(string); ok {
+									if f, err := strconv.ParseFloat(d, 64); err == nil {
+										duration = f
+									}
+								}
+								break // Use first video stream
+							}
 						}
 					}
 				}
@@ -471,8 +507,8 @@ func uploadDailyHandler(c *gin.Context) {
 		}
 
 		// Previous Insert logic
-		_, err = db.Exec("INSERT INTO dailies (project_id, original_filename, proxy_path, folder_path, camera, scene, take, is_good, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			projectID, filename, finalPath, folderPath, camera, scene, take, false, time.Now())
+		_, err = db.Exec("INSERT INTO dailies (project_id, original_filename, proxy_path, folder_path, camera, scene, take, is_good, width, height, frame_rate, duration, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			projectID, filename, finalPath, folderPath, camera, scene, take, false, width, height, frameRate, duration, time.Now())
 
 		if err != nil {
 			log.Printf("DB Error: %v", err)

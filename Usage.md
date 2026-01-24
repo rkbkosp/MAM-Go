@@ -41,12 +41,11 @@ brew install ffmpeg
 
 ### 3.1 编译与安装
 
-进入 `server` 目录进行编译：
 
 ```bash
-cd server
-go mod tidy
-go build -o mam-server .
+go mod init mam-go
+go get github.com/gin-gonic/gin modernc.org/sqlite github.com/schollz/progressbar/v3
+go build -o server_bin server/main.go
 
 ```
 
@@ -112,12 +111,11 @@ GOTIFY_TOKEN=token_here      # Gotify Token
 
 ### 4.1 编译客户端
 
-进入 `client` 目录：
 
 ```bash
-cd client
-go mod tidy
-go build -o ingest_client .
+go mod init mam-go
+go get github.com/gin-gonic/gin modernc.org/sqlite github.com/schollz/progressbar/v3
+go build -o client_bin client/ingest_client.go
 
 ```
 
