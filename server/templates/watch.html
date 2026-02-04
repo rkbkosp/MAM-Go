@@ -313,6 +313,73 @@
         .comment-item.batch-mode .batch-checkbox {
             display: block;
         }
+
+        .comment-item.batch-mode .batch-checkbox {
+            display: block;
+        }
+
+        /* Tabs */
+        .tab-bar {
+            display: flex;
+            gap: 16px;
+            padding: 0 24px;
+            border-bottom: 1px solid var(--md-outline-variant);
+            margin-bottom: 16px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: var(--md-on-surface-variant);
+            padding: 12px 16px;
+            font-size: 1rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-btn.active {
+            color: var(--md-primary);
+            border-bottom-color: var(--md-primary);
+        }
+
+        /* People Grid */
+        .people-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 16px;
+            padding: 24px;
+        }
+
+        .person-card {
+            background: var(--md-surface-container);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            border: 1px solid var(--md-outline-variant);
+        }
+
+        .person-card:hover {
+            border-color: var(--md-primary);
+            background: var(--md-surface-container-high);
+        }
+
+        .person-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: var(--md-primary-container);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .person-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
     </style>
 </head>
 
@@ -512,10 +579,43 @@
     </script>
 
     {{ else if eq .Mode "dailies" }}
-    <div class="stage" style="flex-direction: column;">
-        <div class="grid-container">
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('all')">All Materials</button>
+        <button class="tab-btn" onclick="switchTab('people')">People</button>
+    </div>
+
+    <div id="view-people" style="display: none;">
+        <div class="people-grid">
+            {{ range .People }}
+            <div class="person-card" onclick="filterByPerson('{{.ID}}')">
+                <div class="person-avatar">
+                    {{ if .AvatarPath }}
+                    <img src="{{ .AvatarPath }}">
+                    {{ else }}
+                    <div
+                        style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:2rem; color:var(--md-primary);">
+                        {{ .Name | printf "%.1s" }}</div>
+                    {{ end }}
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px;" onclick="event.stopPropagation()">
+                    <div>{{ .Name }}</div>
+                    <button
+                        style="background: none; border: none; cursor: pointer; color: var(--md-on-surface-variant); padding: 4px;"
+                        onclick="renamePerson('{{.ID}}', '{{.Name}}')">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">edit</span>
+                    </button>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+
+    <div id="view-all" class="stage" style="flex-direction: column;">
+        <div class="grid-container" id="dailiesGrid">
             {{ range .Dailies }}
-            <div class="media-card">
+            <!-- Retrieve daily people IDs from map -->
+            <!-- Go templates are tricky with maps keyed by int vs int64. Assume .ID is int. -->
+            <div class="media-card daily-item" data-id="{{.ID}}">
                 <div class="thumb-wrapper">
                     <video src="/stream-daily/{{ .ID }}?token={{ $.Token }}" controls preload="metadata"></video>
                     <button class="fav-btn {{ if .IsGood }}active{{ end }}" onclick="toggleStar(this, '{{ .ID }}')">
@@ -531,13 +631,69 @@
         </div>
     </div>
     <script>
+        // Pass DailyPeople Map to JS
+        const dailyPeople = {{ .DailyPeopleJSON }}; // map[int][]int
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+
+            if (tab === 'people') {
+                document.getElementById('view-people').style.display = 'block';
+                document.getElementById('view-all').style.display = 'none';
+            } else {
+                document.getElementById('view-people').style.display = 'none';
+                document.getElementById('view-all').style.display = 'flex';
+                // Reset filter
+                document.querySelectorAll('.daily-item').forEach(el => el.style.display = 'flex');
+            }
+        }
+
+        function filterByPerson(personID) {
+            // Switch to All tab
+            switchTab('all');
+            // Update Tab UI manually to 'All' (hacky but works)
+            document.querySelectorAll('.tab-btn')[0].classList.add('active');
+            document.querySelectorAll('.tab-btn')[1].classList.remove('active');
+
+            // Filter
+            const pid = parseInt(personID);
+            document.querySelectorAll('.daily-item').forEach(el => {
+                const did = parseInt(el.dataset.id);
+                const people = dailyPeople[did] || [];
+                if (people.includes(pid)) {
+                    el.style.display = 'flex';
+                } else {
+                    el.style.display = 'none';
+                }
+            });
+        }
+
         function toggleStar(el, id) {
-            fetch('/api/action/star?id=' + id + '&token={{ .Token }}', { method: 'POST' })
                 .then(r => r.json())
                 .then(data => {
                     if (data.is_good) el.classList.add('active');
                     else el.classList.remove('active');
                 });
+        }
+
+        function renamePerson(id, oldName) {
+            const newName = prompt("Rename person:", oldName);
+            if (newName && newName !== oldName) {
+                fetch('/api/people/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: parseInt(id), name: newName })
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'ok') {
+                            location.reload();
+                        } else {
+                            alert('Rename failed');
+                        }
+                    });
+            }
         }
     </script>
     {{ end }}

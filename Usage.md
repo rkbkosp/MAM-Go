@@ -4,8 +4,8 @@
 
 MAM-Go 是一个轻量级、高性能的私有化媒资管理系统，专为影视制作小团队设计。
 
-* **服务端 (Server)**：负责素材存储、Web 审阅、元数据管理及 WebDAV 归档。
-* **客户端 (Client)**：利用 macOS 硬件加速 (VideoToolbox) 自动转码生成 Proxy，提取元数据并断点续传至服务器。
+* **服务端 (Server)**：负责素材存储、Web 审阅、元数据管理及 WebDAV 归档。支持 AI 人脸聚类与检索。
+* **客户端 (Client)**：利用 macOS 硬件加速 (VideoToolbox) 自动转码生成 Proxy，提取元数据并断点续传至服务器。内置 AI 引擎进行离线人脸分析。
 
 ---
 
@@ -25,6 +25,7 @@ MAM-Go 是一个轻量级、高性能的私有化媒资管理系统，专为影�
 ### 客户端 (Client) 要求
 
 * **操作系统**: **macOS** (强烈推荐，代码深度绑定 `hevc_videotoolbox` 硬件加速)。
+* **Python**: 需要系统安装 Python 3 (用于 AI 工具运行，尽管已打包，但建议环境具备)。
 * **FFmpeg**: 必须安装 FFmpeg 且支持 `hevc_videotoolbox` 编码器。
 ```bash
 brew install ffmpeg
@@ -99,7 +100,9 @@ GOTIFY_TOKEN=token_here      # Gotify Token
 
 
 * **审阅页面**: 通过管理后台生成的 Token 链接访问 (如 `/watch?token=...`)。
-* 功能: 观看样片、逐帧评论、标记 Good Take。
+* 功能: 
+    * **All Materials**: 观看样片、逐帧评论、标记 Good Take。
+    * **People**: 浏览自动识别的人物，点击人物头像筛选相关视频。支持点击人名进行重命名。
 
 
 
@@ -147,13 +150,22 @@ go build -o client_bin client/ingest_client.go
 
 ```
 
+**场景 3：向导模式 (推荐)**
+直接运行不带参数的命令，跟随交互式提示输入。
+
+```bash
+./ingest_client
+```
+
 ### 4.4 客户端运行逻辑
 
 1. **扫描**: 递归扫描 `-source` 目录下的 `.mov`, `.mp4`, `.mxf` 文件。
 2. **防休眠**: 自动调用 macOS `caffeinate` 防止系统在传输过程中休眠。
 3. **转码**: 调用 `ffmpeg` 使用 `hevc_videotoolbox` 硬件加速，生成 1080p H.265 Proxy 文件。
-4. **校验**: 计算 Proxy 文件的 MD5 哈希值。
-5. **上传**:
+4. **AI 分析**: 调用内置 Python 工具分析 Proxy 文件，提取人脸特征向量与头像。
+5. **校验**: 计算 Proxy 文件的 MD5 哈希值。
+6. **上传**:
+    * 视频流与 AI 数据并行上传。
 * 支持断点续传：自动检测服务端已上传的大小。
 * 智能跳过：如果服务端已存在完整文件，则自动跳过。
 * 元数据同步：自动提取原始素材的 Metadata (如相机型号、分辨率) 上传至服务器。

@@ -15,6 +15,9 @@ server/MAM-Go
 *.dylib
 main
 ingest_client
+client/dist/
+client/.venv/
+client/build/
 
 # 数据库与日志
 *.db
@@ -30,6 +33,7 @@ config.yaml
 uploads/
 videos/
 dailies/
+Avatars/
 *.part
 *.uploading
 

@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -198,6 +199,29 @@ type Comment struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+// Person represents a unique face
+type Person struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	AvatarPath string `json:"avatar_path"`
+}
+
+// FaceOccurrence represents a detected face in a video
+type FaceOccurrence struct {
+	ID        int64     `json:"id"`
+	DailyID   int64     `json:"daily_id"`
+	PersonID  int64     `json:"person_id"`
+	Timestamp float64   `json:"timestamp"`
+	Encoding  []float64 `json:"encoding"` // 128-dim vector
+}
+
+// FaceInput represents the JSON payload from client
+type FaceInput struct {
+	Timestamp float64   `json:"timestamp"`
+	Encoding  []float64 `json:"encoding"`
+	Thumb     string    `json:"thumb"` // Base64
+}
+
 var db *sql.DB
 
 // --- Init Database ---
@@ -214,6 +238,8 @@ func initDB() {
 	CREATE TABLE IF NOT EXISTS dailies (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, original_filename TEXT, proxy_path TEXT, folder_path TEXT, camera TEXT, scene TEXT, take TEXT, is_good BOOl DEFAULT 0, created_at DATETIME);
 	CREATE TABLE IF NOT EXISTS tokens (code TEXT PRIMARY KEY, target_id INTEGER, type TEXT, role TEXT, created_at DATETIME);
 	CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, video_id INTEGER, timecode REAL, content TEXT, severity TEXT, reporter TEXT, is_fixed BOOL DEFAULT 0, screenshot_path TEXT, created_at DATETIME);
+	CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT DEFAULT 'Unknown', avatar_path TEXT);
+	CREATE TABLE IF NOT EXISTS face_occurrences (id INTEGER PRIMARY KEY AUTOINCREMENT, daily_id INTEGER, person_id INTEGER, timestamp REAL, encoding TEXT);
 	`
 	_, err = db.Exec(schema)
 	// Migration for Note if needed (simple check)
@@ -468,7 +494,6 @@ func uploadDailyHandler(c *gin.Context) {
 					// Or... I'll just leave `camera`, `scene`, `take` as empty or from Query if provided.
 					// The prompt says "将此 JSON 作为 `metadata` 字段..."
 					// If DB doesn't have `metadata` column, I should add it or just log it for now.
-					// Let's Add a Note to the `note` field or similar? No `dailies` doesn't have `note`.
 					// I will skip DB Schema change to avoid complexity unless user asked (User asked "Server Interface Definition" in previous turn, but didn't explicitly ask for Schema change for metadata blob).
 					// BUT, if I don't save it, what's the point?
 					// I will just map `camera`, `scene`, `take` if found in `format.tags`.
@@ -507,16 +532,18 @@ func uploadDailyHandler(c *gin.Context) {
 		}
 
 		// Previous Insert logic
-		_, err = db.Exec("INSERT INTO dailies (project_id, original_filename, proxy_path, folder_path, camera, scene, take, is_good, width, height, frame_rate, duration, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		// Get LastInsertID
+		res, err := db.Exec("INSERT INTO dailies (project_id, original_filename, proxy_path, folder_path, camera, scene, take, is_good, width, height, frame_rate, duration, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			projectID, filename, finalPath, folderPath, camera, scene, take, false, width, height, frameRate, duration, time.Now())
 
-		if err != nil {
+		var newID int64
+		if err == nil {
+			newID, _ = res.LastInsertId()
+		} else {
 			log.Printf("DB Error: %v", err)
-			// Return OK anyway as file is safe? Or error?
-			// Client might retry if error.
 		}
 
-		c.JSON(200, gin.H{"status": "completed"})
+		c.JSON(200, gin.H{"status": "completed", "id": newID})
 	} else {
 		// Partial success
 		c.JSON(200, gin.H{"status": "partial", "uploaded": info.Size()})
@@ -570,12 +597,45 @@ func watchHandler(c *gin.Context) {
 			rows.Scan(&d.ID, &d.OriginalFilename, &d.FolderPath, &d.IsGood)
 			ds = append(ds, d)
 		}
+		// Get People in this project
+		// Find distinct people appearing in dailies of this project
+		peopleRows, _ := db.Query(`SELECT DISTINCT p.id, p.name, p.avatar_path 
+			FROM people p 
+			JOIN face_occurrences f ON p.id = f.person_id 
+			JOIN dailies d ON f.daily_id = d.id 
+			WHERE d.project_id = ?`, t.TargetID)
+
+		var people []Person
+		for peopleRows.Next() {
+			var p Person
+			peopleRows.Scan(&p.ID, &p.Name, &p.AvatarPath)
+			people = append(people, p)
+		}
+
+		// Get Occurrences Map: DailyID -> []PersonID
+		occRows, _ := db.Query(`SELECT f.daily_id, f.person_id 
+			FROM face_occurrences f 
+			JOIN dailies d ON f.daily_id = d.id 
+			WHERE d.project_id = ?`, t.TargetID)
+
+		dailyPeopleMap := make(map[int][]int64)
+		for occRows.Next() {
+			var did int
+			var pid int64
+			occRows.Scan(&did, &pid)
+			dailyPeopleMap[did] = append(dailyPeopleMap[did], pid)
+		}
+
+		dailyPeopleJSON, _ := json.Marshal(dailyPeopleMap)
+
 		c.HTML(http.StatusOK, "watch.html", gin.H{
-			"Mode":        "dailies",
-			"Dailies":     ds,
-			"Token":       tokenCode,
-			"ProjectID":   t.TargetID,
-			"ProjectName": projectName,
+			"Mode":            "dailies",
+			"Dailies":         ds,
+			"People":          people,
+			"DailyPeopleJSON": template.JS(dailyPeopleJSON),
+			"Token":           tokenCode,
+			"ProjectID":       t.TargetID,
+			"ProjectName":     projectName,
 		})
 	}
 }
@@ -788,6 +848,165 @@ func uploadToWebDAV(localPath string) bool {
 	return true
 }
 
+// --- Face Recognition Logic ---
+
+func uploadFacesHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	dailyID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid ID"})
+		return
+	}
+
+	var inputs []FaceInput
+	if err := c.ShouldBindJSON(&inputs); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	// Process each detected face
+	for _, face := range inputs {
+		processFace(dailyID, face)
+	}
+
+	c.JSON(200, gin.H{"status": "ok", "processed": len(inputs)})
+}
+
+func processFace(dailyID int64, face FaceInput) {
+	// 1. Fetch all known people with their encodings (optimization: cache people encodings?)
+	// For simplicity, we'll fetch from DB or use the most recent occurrences.
+	// Actually, `people` table doesn't store encoding. `face_occurrences` does.
+	// We should get a representative encoding for each person.
+	// Or check against all faces? (Slow)
+	// Strategy: Check against all faces in `face_occurrences`? Better:
+	// Check against "Person's average encoding" or "First encoding".
+	// Let's iterate all people and get one sample encoding for each.
+
+	// Query to get distinct people and their reference encoding (e.g., from first occurrence)
+	// We join people and face_occurrences to get one encoding per person
+	rows, err := db.Query(`
+		SELECT p.id, f.encoding 
+		FROM people p 
+		JOIN face_occurrences f ON p.id = f.person_id 
+		GROUP BY p.id
+	`)
+	if err != nil {
+		log.Printf("DB Error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var matchPersonID int64 = 0
+	minDist := 1.0 // Initialize with a value > threshold
+
+	for rows.Next() {
+		var pid int64
+		var encStr string
+		if err := rows.Scan(&pid, &encStr); err != nil {
+			continue
+		}
+
+		var knownEncoding []float64
+		if err := json.Unmarshal([]byte(encStr), &knownEncoding); err != nil {
+			continue
+		}
+
+		dist := euclideanDistance(face.Encoding, knownEncoding)
+		if dist < 0.6 && dist < minDist {
+			minDist = dist
+			matchPersonID = pid
+		}
+	}
+
+	// 2. Decide
+	if matchPersonID == 0 {
+		// New Person
+		res, err := db.Exec("INSERT INTO people (name, avatar_path) VALUES (?, ?)", "Unknown", "")
+		if err != nil {
+			log.Printf("Create Person Error: %v", err)
+			return
+		}
+		matchPersonID, _ = res.LastInsertId()
+
+		// Save Avatar (Thumbnail)
+		// Assume thumb is base64
+		saveAvatar(matchPersonID, face.Thumb)
+	}
+
+	// 3. Save Occurrence
+	encJSON, _ := json.Marshal(face.Encoding)
+	_, err = db.Exec("INSERT INTO face_occurrences (daily_id, person_id, timestamp, encoding) VALUES (?, ?, ?, ?)",
+		dailyID, matchPersonID, face.Timestamp, string(encJSON))
+	if err != nil {
+		log.Printf("Save Occurrence Error: %v", err)
+	}
+}
+
+func euclideanDistance(a, b []float64) float64 {
+	if len(a) != len(b) {
+		return 100.0
+	}
+	var sum float64
+	for i := range a {
+		diff := a[i] - b[i]
+		sum += diff * diff
+	}
+	return math.Sqrt(sum)
+}
+
+func saveAvatar(personID int64, base64Data string) {
+	if base64Data == "" {
+		return
+	}
+	// decode
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return
+	}
+
+	filename := fmt.Sprintf("person_%d.jpg", personID)
+	// Must ensure avatars dir is accessible by web.
+	// For now save to upload root or static dir?
+	// The `watchHandler` might need to serve it.
+	// Let's assume we serve `/static/avatars` or similar.
+	// Let's put in `storage/Avatars`
+
+	saveDir := filepath.Join(cfg.UploadRoot, "Avatars")
+	os.MkdirAll(saveDir, 0755)
+
+	path := filepath.Join(saveDir, filename)
+
+	if err := os.WriteFile(path, data, 0644); err == nil {
+		// Store relative path that can be served
+		db.Exec("UPDATE people SET avatar_path = ? WHERE id = ?", "/api/avatars/"+filename, personID)
+	}
+}
+
+func renamePersonHandler(c *gin.Context) {
+	var req struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	if req.ID == 0 || req.Name == "" {
+		c.JSON(400, gin.H{"error": "Missing ID or Name"})
+		return
+	}
+
+	_, err := db.Exec("UPDATE people SET name = ? WHERE id = ?", req.Name, req.ID)
+	if err != nil {
+		log.Printf("Rename failed: %v", err)
+		c.JSON(500, gin.H{"error": "Rename failed"})
+		return
+	}
+
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
 func main() {
 	envFile := flag.String("env", ".env", "Path to .env file")
 	flag.Parse()
@@ -875,6 +1094,8 @@ func main() {
 	r.POST("/api/comment", postCommentHandler)
 	r.POST("/api/comment/delete", deleteCommentHandler)
 	r.POST("/api/action/star", toggleGoodHandler)
+	r.POST("/api/dailies/:id/faces", uploadFacesHandler)
+	r.POST("/api/people/rename", renamePersonHandler)
 
 	// Public / Token Access
 	r.GET("/watch", watchHandler)
