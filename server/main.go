@@ -536,7 +536,7 @@ func watchHandler(c *gin.Context) {
 		// Render Review Page
 		var v Video
 		var p Project
-		db.QueryRow("SELECT file_path, project_id FROM videos WHERE id = ?", t.TargetID).Scan(&v.FilePath, &v.ProjectID)
+		db.QueryRow("SELECT file_path, project_id, note FROM videos WHERE id = ?", t.TargetID).Scan(&v.FilePath, &v.ProjectID, &v.Note)
 		db.QueryRow("SELECT name FROM projects WHERE id = ?", v.ProjectID).Scan(&p.Name)
 
 		// Load comments
@@ -555,6 +555,7 @@ func watchHandler(c *gin.Context) {
 			"Comments":    comments,
 			"Token":       tokenCode,
 			"IsReviewer":  t.Role == "reviewer",
+			"VideoNote":   v.Note,
 		})
 	} else if t.Type == "dailies" {
 		// Get Project Name

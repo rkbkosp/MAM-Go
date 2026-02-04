@@ -352,6 +352,13 @@
                 </div>
             </div>
             <div class="comments-list" id="commentsList">
+                {{ if .VideoNote }}
+                <div
+                    style="background: var(--md-surface-container-high); padding: 12px; margin: 16px 16px 0; border-radius: 8px; border-left: 4px solid var(--md-primary); font-size: 0.9rem; color: var(--md-on-surface-variant);">
+                    <div style="font-weight: 500; margin-bottom: 4px; color: var(--md-primary);">剪辑师备注:</div>
+                    {{ .VideoNote }}
+                </div>
+                {{ end }}
                 {{ range .Comments }}
                 <div class="comment-item" data-id="{{.ID}}" data-reporter="{{.Reporter}}">
                     <input type="checkbox" class="batch-checkbox" value="{{.ID}}">
