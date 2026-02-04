@@ -668,6 +668,43 @@ func postCommentHandler(c *gin.Context) {
 	c.JSON(200, cm)
 }
 
+func deleteCommentHandler(c *gin.Context) {
+	var req struct {
+		IDs      []int  `json:"ids"`
+		Reporter string `json:"reporter"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		c.JSON(200, gin.H{"status": "ok", "deleted": 0})
+		return
+	}
+
+	// Prepare query
+	// SQLite doesn't support array parameters easily, so we build the query string dynamically for the IN clause
+	// Also ensure we only delete comments owned by the reporter
+	query := fmt.Sprintf("DELETE FROM comments WHERE reporter = ? AND id IN (%s)", strings.Trim(strings.Repeat("?,", len(req.IDs)), ","))
+
+	args := make([]interface{}, len(req.IDs)+1)
+	args[0] = req.Reporter
+	for i, id := range req.IDs {
+		args[i+1] = id
+	}
+
+	res, err := db.Exec(query, args...)
+	if err != nil {
+		log.Printf("Delete failed: %v", err)
+		c.JSON(500, gin.H{"error": "Delete failed"})
+		return
+	}
+
+	rows, _ := res.RowsAffected()
+	c.JSON(200, gin.H{"status": "ok", "deleted": rows})
+}
+
 // --- Scheduler ---
 func startScheduler() {
 	go func() {
@@ -835,6 +872,7 @@ func main() {
 	r.GET("/api/dailies/check", checkDailyHandler)
 	r.POST("/api/dailies/upload", uploadDailyHandler)
 	r.POST("/api/comment", postCommentHandler)
+	r.POST("/api/comment/delete", deleteCommentHandler)
 	r.POST("/api/action/star", toggleGoodHandler)
 
 	// Public / Token Access
