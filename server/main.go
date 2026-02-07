@@ -577,6 +577,7 @@ func watchHandler(c *gin.Context) {
 
 		c.HTML(http.StatusOK, "watch.html", gin.H{
 			"Mode":        "demo",
+			"VideoID":     t.TargetID,
 			"VideoPath":   "/stream/" + fmt.Sprint(t.TargetID) + "?token=" + tokenCode,
 			"ProjectName": p.Name,
 			"Comments":    comments,

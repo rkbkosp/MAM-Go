@@ -95,3 +95,4 @@ go build -o ingest_client .
 ## 下一步计划
 
 * 针对 Windows 设备优化客户端
+* 引入更多AI功能

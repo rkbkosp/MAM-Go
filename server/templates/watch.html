@@ -535,6 +535,8 @@
 
         function seek(t) { vid.currentTime = t; vid.play(); }
 
+        const videoID = {{ .VideoID }};
+
         function submitComment() {
             const inp = document.getElementById('commentText');
             const text = inp.value;
@@ -544,7 +546,7 @@
             fetch('/api/comment', {
                 method: 'POST',
                 body: JSON.stringify({
-                    video_id: 1,
+                    video_id: videoID,
                     timecode: currentTime,
                     content: text,
                     severity: "normal",
