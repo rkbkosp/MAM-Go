@@ -568,6 +568,7 @@ func watchHandler(c *gin.Context) {
 
 		// Load comments
 		rows, _ := db.Query("SELECT id, timecode, content, reporter FROM comments WHERE video_id = ?", t.TargetID)
+		defer rows.Close()
 		var comments []Comment
 		for rows.Next() {
 			var cm Comment
@@ -592,6 +593,7 @@ func watchHandler(c *gin.Context) {
 
 		// Render Grid
 		rows, _ := db.Query("SELECT id, original_filename, folder_path, is_good FROM dailies WHERE project_id = ? ORDER BY created_at DESC", t.TargetID)
+		defer rows.Close()
 		var ds []Daily
 		for rows.Next() {
 			var d Daily
@@ -605,6 +607,7 @@ func watchHandler(c *gin.Context) {
 			JOIN face_occurrences f ON p.id = f.person_id 
 			JOIN dailies d ON f.daily_id = d.id 
 			WHERE d.project_id = ?`, t.TargetID)
+		defer peopleRows.Close()
 
 		var people []Person
 		for peopleRows.Next() {
@@ -618,6 +621,7 @@ func watchHandler(c *gin.Context) {
 			FROM face_occurrences f 
 			JOIN dailies d ON f.daily_id = d.id 
 			WHERE d.project_id = ?`, t.TargetID)
+		defer occRows.Close()
 
 		dailyPeopleMap := make(map[int][]int64)
 		for occRows.Next() {
@@ -716,8 +720,8 @@ func postCommentHandler(c *gin.Context) {
 	}
 
 	now := time.Now()
-	res, err := db.Exec("INSERT INTO comments (video_id, timecode, content, severity, reporter, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		cm.VideoID, cm.Timecode, cm.Content, cm.Severity, cm.Reporter, now)
+	res, err := db.Exec("INSERT INTO comments (video_id, timecode, content, severity, reporter, screenshot_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		cm.VideoID, cm.Timecode, cm.Content, cm.Severity, cm.Reporter, cm.ScreenshotPath, now)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Database error"})
 		return

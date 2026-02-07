@@ -672,6 +672,7 @@
         }
 
         function toggleStar(el, id) {
+            fetch('/api/action/star?id=' + id, { method: 'POST' })
                 .then(r => r.json())
                 .then(data => {
                     if (data.is_good) el.classList.add('active');
